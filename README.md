@@ -315,13 +315,15 @@ do {
 
 ## CoreOSC
 
-OSCKit is supported by the infrastructural code provided by [CoreOSC](https://github.com/sammysmallman/CoreOSC). For more detailed information pertaining to the OSC objects that OSCKit uses, such as Address Patterns, Messages and Bundles, please direct all queries to [CoreOSC](https://github.com/sammysmallman/CoreOSC).
+OSCKit is supported by the infrastructural code provided by [CoreOSC](https://github.com/dsmurfin/CoreOSC). For more detailed information pertaining to the OSC objects that OSCKit uses, such as Address Patterns, Messages and Bundles, please direct all queries to [CoreOSC](https://github.com/dsmurfin/CoreOSC).
 
 ## Authors
 
 **Sammy Smallman** - *Initial Work* - [SammySmallman](https://github.com/sammysmallman)
 
-See also the list of [contributors](https://github.com/SammyTheHand/OSCKit/graphs/contributors) who participated in this project.
+**Dan Murfin** - *This Fork* - [dsmurfin](https://github.com/dsmurfin)
+
+See also the list of [contributors](https://github.com/dsmurfin/OSCKit/graphs/contributors) who participated in this project.
 
 ## Acknowledgments
 
