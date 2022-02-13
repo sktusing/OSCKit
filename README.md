@@ -11,6 +11,18 @@ Added features include:
  * takeBundle() - OSCPacketDestinations are notified when an OSC bundle is received so that embedded messages and bundles can be acted upon asynchronously using the bundles timetag.
  * Multicasting - Servers can join & leave multicast groups.
  * OSC 1.0 & 1.1 Stream Framing.
+ 
+#### Note
+This branch `MIT-2.x` is an independently maintained branch of the previous MIT licensed work. Please see `MIT-3.x`
+for the equivalent version 3 branch.
+
+When using Swift Package Manager, please use the following to ensure you stay within the MIT licensed release.
+
+```  swift
+dependencies: [
+    .package(url: "https://github.com/dsmurfin/OSCKit", "2.1.5"..<"2.2.0")
+]
+```
 
 ## Installation
 
@@ -96,7 +108,9 @@ client.send(packet: message)
 
 **Sammy Smallman** - *Initial Work* - [SammySmallman](https://github.com/sammysmallman)
 
-See also the list of [contributors](https://github.com/SammyTheHand/OSCKit/graphs/contributors) who participated in this project.
+**Dan Murfin** - *This Fork* - [dsmurfin](https://github.com/dsmurfin)
+
+See also the list of [contributors](https://github.com/dsmurfin/OSCKit/graphs/contributors) who participated in this project.
 
 ## Acknowledgments
 
