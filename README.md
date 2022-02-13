@@ -9,6 +9,14 @@ The OSCKit package provides the classes needed for your apps to communicate amon
 This branch `MIT-3.x` is an independently maintained branch of the previous MIT licensed work. Please see `MIT-2.x`
 for the equivalent version 2 branch.
 
+When using Swift Package Manager, please use the following to ensure you stay within the MIT licensed release.
+
+```  swift
+dependencies: [
+    .package(url: "https://github.com/dsmurfin/CoreOSC", "3.0.1"..<"3.1.0")
+]
+```
+
 ## Overview
 Use the OSCKit package to create client or server objects. In its simplest form a client can send a packet, either a [Message](http://opensoundcontrol.org/spec-1_0.html#osc-messages) or [Bundle](http://opensoundcontrol.org/spec-1_0.html#osc-bundles) to a server. A server, when listening, can receive these packets and action upon them. Depending on a client or server using either UDP or TCP as a transport, there are varying levels of fuctionality and delegate methods for you to take advantage of.
 
