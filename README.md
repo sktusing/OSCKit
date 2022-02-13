@@ -5,7 +5,7 @@
 # OSCKit
 The OSCKit package provides the classes needed for your apps to communicate among computers, sound synthesizers, and other multimedia devices via [OSC](http://opensoundcontrol.org/README.html) over an IP network. 
 
-####Note
+#### Note
 This branch `MIT-3.x` is an independently maintained branch of the previous MIT licensed work. Please see `MIT-2.x`
 for the equivalent version 2 branch.
 
