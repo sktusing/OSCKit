@@ -13,7 +13,7 @@ When using Swift Package Manager, please use the following to ensure you stay wi
 
 ```  swift
 dependencies: [
-    .package(url: "https://github.com/dsmurfin/CoreOSC", "3.0.1"..<"3.1.0")
+    .package(url: "https://github.com/dsmurfin/OSCKit", "3.0.1"..<"3.1.0")
 ]
 ```
 
