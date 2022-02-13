@@ -57,7 +57,13 @@ public class OSCUdpPeer: NSObject {
     private let socket: GCDAsyncUdpSocket
 
     /// A boolean value that indicates whether the peer is running i.e. whether it can receive and send OSCPackets.
-    public private(set) var isRunning: Bool = false
+    public private(set) var isRunning: Bool {
+        get { queue.sync { _isRunning } }
+        set { queue.sync { _isRunning = newValue } }
+    }
+
+    /// Private: A boolean value that indicates whether the peer is running i.e. whether it can receive and send OSCPackets.
+    private var _isRunning: Bool = false
 
     /// The interface may be a name (e.g. "en1" or "lo0") or the corresponding IP address (e.g. "192.168.1.15").
     /// If the value of this is nil the peer will receive on all interfaces and the interface will be infered by the host
@@ -101,14 +107,14 @@ public class OSCUdpPeer: NSObject {
     /// A dictionary of `OSCPackets` keyed by the sequenced `tag` number.
     ///
     /// This allows for a reference to a sent packet when the
-    /// GCDAsynUDPSocketDelegate method udpSocket(_:didSendDataWithTag:) is called.
-    private var sendingPackets: [Int: OSCSentPacket] = [:]
+    /// GCDAsyncUDPSocketDelegate method udpSocket(_:didSendDataWithTag:) is called.
+    private var _sendingPackets: [Int: OSCSentPacket] = [:]
 
     /// A sequential tag that is increased and associated with each packet sent.
     ///
     /// The tag will wrap around to 0 if the maximum amount has been reached.
     /// This allows for a reference to a sent packet when the
-    /// GCDAsynUDPSocketDelegate method udpSocket(_:didSendDataWithTag:) is called.
+    /// GCDAsyncUDPSocketDelegate method udpSocket(_:didSendDataWithTag:) is called.
     private var tag: Int = 0
 
     /// The dispatch queue that the peer executes all delegate callbacks on.
@@ -117,7 +123,15 @@ public class OSCUdpPeer: NSObject {
     /// The peers delegate.
     ///
     /// The delegate must conform to the `OSCUdpPeerDelegate` protocol.
-    public weak var delegate: OSCUdpPeerDelegate?
+    public var delegate: OSCUdpPeerDelegate? {
+        get { queue.sync { _delegate } }
+        set { queue.sync { _delegate = newValue } }
+    }
+
+    /// The peers delegate.
+    ///
+    /// Private: The peers delegate.
+    private weak var _delegate: OSCUdpPeerDelegate?
 
     /// An OSC UDP Peer.
     /// - Parameters:
@@ -137,7 +151,7 @@ public class OSCUdpPeer: NSObject {
         host = configuration.host
         port = configuration.port
         hostPort = configuration.hostPort
-        self.delegate = delegate
+        self._delegate = queue.sync { delegate }
         self.queue = queue
         super.init()
         socket.setDelegate(self, delegateQueue: queue)
@@ -240,9 +254,11 @@ public class OSCUdpPeer: NSObject {
     /// Therefore by passing it into this function allows for us to not calculate it
     /// once more when send(_:Data) is called.
     private func send(packet: OSCPacket, with data: Data) throws {
-        sendingPackets[tag] = OSCSentPacket(host: socket.localHost(),
-                                            port: socket.localPort(),
-                                            packet: packet)
+        _sendingPackets[tag] = queue.sync {
+            OSCSentPacket(host: socket.localHost(),
+                          port: socket.localPort(),
+                          packet: packet)
+        }
         socket.send(data,
                     toHost: host,
                     port: hostPort,
@@ -263,39 +279,39 @@ extension OSCUdpPeer: GCDAsyncUdpSocketDelegate {
         guard let host = GCDAsyncUdpSocket.host(fromAddress: address) else { return }
         do {
             let packet = try OSCParser.packet(from: data)
-            delegate?.peer(self,
+            _delegate?.peer(self,
                            didReceivePacket: packet,
                            fromHost: host,
                            port: GCDAsyncUdpSocket.port(fromAddress: address))
         } catch {
-            delegate?.peer(self,
+            _delegate?.peer(self,
                            didReadData: data,
                            with: error)
         }
-        if !isRunning {
-            isRunning = true
+        if !_isRunning {
+            _isRunning = true
         }
     }
 
     public func udpSocketDidClose(_ sock: GCDAsyncUdpSocket,
                                   withError error: Error?) {
-        isRunning = false
-        delegate?.peer(self, socketDidCloseWithError: error)
+        _isRunning = false
+        _delegate?.peer(self, socketDidCloseWithError: error)
     }
     
     public func udpSocket(_ sock: GCDAsyncUdpSocket, didSendDataWithTag tag: Int) {
-        guard let sentPacket = sendingPackets[tag] else { return }
-        sendingPackets[tag] = nil
-        delegate?.peer(self,
+        guard let sentPacket = _sendingPackets[tag] else { return }
+        _sendingPackets[tag] = nil
+        _delegate?.peer(self,
                        didSendPacket: sentPacket.packet,
                        fromHost: sentPacket.host,
                        port: sentPacket.port)
     }
 
     public func udpSocket(_ sock: GCDAsyncUdpSocket, didNotSendDataWithTag tag: Int, dueToError error: Error?) {
-        guard let sentPacket = sendingPackets[tag] else { return }
-        sendingPackets[tag] = nil
-        delegate?.peer(self,
+        guard let sentPacket = _sendingPackets[tag] else { return }
+        _sendingPackets[tag] = nil
+        _delegate?.peer(self,
                        didNotSendPacket: sentPacket.packet,
                        fromHost: sentPacket.host,
                        port: sentPacket.port,

@@ -54,19 +54,32 @@ public class OSCTcpServer: NSObject {
 
     /// A `Dictionary` of client TCP sockets connected to the server.
     /// This dictionary is keyed by the sockets with the value containing the state of each client.
-    private var sockets: [GCDAsyncSocket: ClientState] = [:]
+    private var _sockets: [GCDAsyncSocket: ClientState] = [:]
 
     /// An `Array` of tuples representing the host and port for each of the servers connected clients.
     public var clients: [(host: String, port: UInt16)] {
-        sockets.compactMap { (host: $0.value.host, port: $0.value.port) }
+        queue.sync { _sockets.compactMap { (host: $0.value.host, port: $0.value.port) } }
     }
 
-    /// The timeout for the read and write opeartions.
+    /// The timeout for the read and write operations.
     /// If the timeout value is negative, the send operation will not use a timeout.
-    public var timeout: TimeInterval = -1
+    public var timeout: TimeInterval {
+        get { queue.sync { _timeout } }
+        set { queue.sync { _timeout = newValue } }
+    }
+    
+    /// Private: The timeout for the read and write operations.
+    /// If the timeout value is negative, the send operation will not use a timeout.
+    private var _timeout: TimeInterval = -1
 
     /// A boolean value that indicates whether the server is listening for new connections and OSC packets.
-    public private(set) var isListening: Bool = false
+    public var isListening: Bool {
+        get { queue.sync { _isListening } }
+        set { queue.sync { _isListening = newValue } }
+    }
+    
+    /// Private: A boolean value that indicates whether the server is listening for new connections and OSC packets.
+    private var _isListening: Bool = false
 
     /// The interface may be a name (e.g. "en1" or "lo0") or the corresponding IP address (e.g. "192.168.1.15").
     /// If the value of this is nil the server will listen on all interfaces.
@@ -89,38 +102,54 @@ public class OSCTcpServer: NSObject {
             stopListening()
         }
     }
-
+    
     /// The stream framing all OSCPackets will be encoded and decoded with.
     ///
     /// There are two versions of OSC:
     /// - OSC 1.0 uses packet length headers.
     /// - OSC 1.1 uses the [SLIP protocol](http://www.rfc-editor.org/rfc/rfc1055.txt).
-    public var streamFraming: OSCTcpStreamFraming = .SLIP {
+    public var streamFraming: OSCTcpStreamFraming {
+        get { queue.sync { _streamFraming } }
+        set { queue.sync { _streamFraming = newValue } }
+    }
+    
+    /// Private: The stream framing all OSCPackets will be encoded and decoded with.
+    ///
+    /// There are two versions of OSC:
+    /// - OSC 1.0 uses packet length headers.
+    /// - OSC 1.1 uses the [SLIP protocol](http://www.rfc-editor.org/rfc/rfc1055.txt).
+    private var _streamFraming: OSCTcpStreamFraming = .SLIP {
         didSet {
-            sockets.forEach { sockets[$0.key]!.state = OSCTcp.SocketState() }
+            _sockets.forEach { _sockets[$0.key]!.state = OSCTcp.SocketState() }
         }
     }
 
     /// The dispatch queue that the server runs and executes all delegate callbacks on.
     private let queue: DispatchQueue
-
+    
     /// The servers delegate.
     ///
     /// The delegate must conform to the `OSCTcpServerDelegate` protocol.
-    public weak var delegate: OSCTcpServerDelegate?
+    public var delegate: OSCTcpServerDelegate? {
+        get { queue.sync { _delegate } }
+        set { queue.sync { _delegate = newValue } }
+    }
+
+    /// Private: The servers delegate.
+    private weak var _delegate: OSCTcpServerDelegate?
 
     /// A dictionary of `OSCPackets` keyed by the sequenced `tag` number.
     ///
     /// This allows for a reference to a sent packet when the
     /// GCDAsyncSocketDelegate method socket(_:didWriteDataWithTag:) is called.
-    private var sendingMessages: [Int: SentMessage] = [:]
+    private var _sendingMessages: [Int: SentMessage] = [:]
 
     /// A sequential tag that is increased and associated with each message sent.
     ///
     /// The tag will wrap around to 0 if the maximum amount has been reached.
     /// This allows for a reference to a sent packet when the
     /// GCDAsyncSocketDelegate method socket(_:didWriteDataWithTag:) is called.
-    private var tag: Int = 0
+    private var _tag: Int = 0
 
     /// An OSC TCP Server.
     /// - Parameters:
@@ -137,7 +166,7 @@ public class OSCTcpServer: NSObject {
             interface = nil
         }
         port = configuration.port
-        self.delegate = delegate
+        self._delegate = queue.sync { delegate }
         self.queue = queue
         super.init()
         socket.setDelegate(self, delegateQueue: queue)
@@ -191,7 +220,7 @@ public class OSCTcpServer: NSObject {
     public func stopListening() {
         guard isListening else { return }
         isListening = false
-        sockets.forEach { $0.key.disconnectAfterWriting() }
+        queue.sync { _sockets.forEach { $0.key.disconnectAfterWriting() } }
         socket.disconnectAfterReadingAndWriting()
         socket.synchronouslySetDelegateQueue(nil)
     }
@@ -202,17 +231,17 @@ public class OSCTcpServer: NSObject {
     public func send(_ packet: OSCPacket) {
         queue.async { [weak self] in
             guard let strongSelf = self else { return }
-            strongSelf.sockets.forEach { socket in
-                strongSelf.socket.readData(withTimeout: strongSelf.timeout, tag: 0)
-                strongSelf.sendingMessages[strongSelf.tag] = SentMessage(host: socket.value.host,
+            strongSelf._sockets.forEach { socket in
+                strongSelf.socket.readData(withTimeout: strongSelf._timeout, tag: 0)
+                strongSelf._sendingMessages[strongSelf._tag] = SentMessage(host: socket.value.host,
                                                                          port: socket.value.port,
                                                                          packet: packet)
                 OSCTcp.send(packet: packet,
-                            streamFraming: strongSelf.streamFraming,
+                            streamFraming: strongSelf._streamFraming,
                             with: socket.key,
-                            timeout: strongSelf.timeout,
-                            tag: strongSelf.tag)
-                strongSelf.tag = strongSelf.tag == Int.max ? 0 : strongSelf.tag + 1
+                            timeout: strongSelf._timeout,
+                            tag: strongSelf._tag)
+                strongSelf._tag = strongSelf._tag == Int.max ? 0 : strongSelf._tag + 1
             }
         }
     }
@@ -224,17 +253,17 @@ public class OSCTcpServer: NSObject {
         let packet = try OSCParser.packet(from: data)
         queue.async { [weak self] in
             guard let strongSelf = self else { return }
-            strongSelf.sockets.forEach { socket in
-                strongSelf.socket.readData(withTimeout: strongSelf.timeout, tag: 0)
-                strongSelf.sendingMessages[strongSelf.tag] = SentMessage(host: socket.value.host,
+            strongSelf._sockets.forEach { socket in
+                strongSelf.socket.readData(withTimeout: strongSelf._timeout, tag: 0)
+                strongSelf._sendingMessages[strongSelf._tag] = SentMessage(host: socket.value.host,
                                                                          port: socket.value.port,
                                                                          packet: packet)
                 OSCTcp.send(data: data,
-                            streamFraming: strongSelf.streamFraming,
+                            streamFraming: strongSelf._streamFraming,
                             with: socket.key,
-                            timeout: strongSelf.timeout,
-                            tag: strongSelf.tag)
-                strongSelf.tag = strongSelf.tag == Int.max ? 0 : strongSelf.tag + 1
+                            timeout: strongSelf._timeout,
+                            tag: strongSelf._tag)
+                strongSelf._tag = strongSelf._tag == Int.max ? 0 : strongSelf._tag + 1
             }
         }
     }
@@ -247,21 +276,21 @@ public class OSCTcpServer: NSObject {
     public func send(_ packet: OSCPacket, to host: String, port: UInt16) {
         queue.async { [weak self] in
             guard let strongSelf = self else { return }
-            guard let socket = strongSelf.sockets.first(where: {
+            guard let socket = strongSelf._sockets.first(where: {
                 $0.value.host == host && $0.value.port == port
             }) else {
                 return
             }
-            strongSelf.socket.readData(withTimeout: strongSelf.timeout, tag: 0)
-            strongSelf.sendingMessages[strongSelf.tag] = SentMessage(host: socket.value.host,
+            strongSelf.socket.readData(withTimeout: strongSelf._timeout, tag: 0)
+            strongSelf._sendingMessages[strongSelf._tag] = SentMessage(host: socket.value.host,
                                                                      port: socket.value.port,
                                                                      packet: packet)
             OSCTcp.send(packet: packet,
-                        streamFraming: strongSelf.streamFraming,
+                        streamFraming: strongSelf._streamFraming,
                         with: socket.key,
-                        timeout: strongSelf.timeout,
-                        tag: strongSelf.tag)
-            strongSelf.tag = strongSelf.tag == Int.max ? 0 : strongSelf.tag + 1
+                        timeout: strongSelf._timeout,
+                        tag: strongSelf._tag)
+            strongSelf._tag = strongSelf._tag == Int.max ? 0 : strongSelf._tag + 1
         }
     }
 
@@ -275,21 +304,21 @@ public class OSCTcpServer: NSObject {
         let packet = try OSCParser.packet(from: data)
         queue.async { [weak self] in
             guard let strongSelf = self else { return }
-            guard let socket = strongSelf.sockets.first(where: {
+            guard let socket = strongSelf._sockets.first(where: {
                 $0.value.host == host && $0.value.port == port
             }) else {
                 return
             }
-            strongSelf.socket.readData(withTimeout: strongSelf.timeout, tag: 0)
-            strongSelf.sendingMessages[strongSelf.tag] = SentMessage(host: socket.value.host,
+            strongSelf.socket.readData(withTimeout: strongSelf._timeout, tag: 0)
+            strongSelf._sendingMessages[strongSelf._tag] = SentMessage(host: socket.value.host,
                                                                      port: socket.value.port,
                                                                      packet: packet)
             OSCTcp.send(data: data,
-                        streamFraming: strongSelf.streamFraming,
+                        streamFraming: strongSelf._streamFraming,
                         with: socket.key,
-                        timeout: strongSelf.timeout,
-                        tag: strongSelf.tag)
-            strongSelf.tag = strongSelf.tag == Int.max ? 0 : strongSelf.tag + 1
+                        timeout: strongSelf._timeout,
+                        tag: strongSelf._tag)
+            strongSelf._tag = strongSelf._tag == Int.max ? 0 : strongSelf._tag + 1
         }
     }
 
@@ -300,14 +329,14 @@ extension OSCTcpServer: GCDAsyncSocketDelegate {
 
     public func socket(_ sock: GCDAsyncSocket,
                        didAcceptNewSocket newSocket: GCDAsyncSocket) {
-        if !isListening {
-            isListening = true
+        if !_isListening {
+            _isListening = true
         }
         guard let host = newSocket.connectedHost else { return }
-        sockets[newSocket] = ClientState(host: host,
+        _sockets[newSocket] = ClientState(host: host,
                                          port: newSocket.connectedPort)
-        newSocket.readData(withTimeout: timeout, tag: 0)
-        delegate?.server(self,
+        newSocket.readData(withTimeout: _timeout, tag: 0)
+        _delegate?.server(self,
                          didConnectToClientWithHost: host,
                          port: newSocket.connectedPort)
     }
@@ -315,18 +344,18 @@ extension OSCTcpServer: GCDAsyncSocketDelegate {
     public func socket(_ sock: GCDAsyncSocket,
                        didRead data: Data,
                        withTag tag: Int) {
-        if !isListening {
-            isListening = true
+        if !_isListening {
+            _isListening = true
         }
-        guard sockets.keys.contains(sock) else { return }
+        guard _sockets.keys.contains(sock) else { return }
         do {
-            switch streamFraming {
+            switch _streamFraming {
             case .SLIP:
                 try OSCTcp.decodeSLIP(data,
-                                      with: &sockets[sock]!.state,
+                                      with: &_sockets[sock]!.state,
                                       dispatchHandler: { [weak self] packet in
                     guard let strongSelf = self,
-                          let delegate = strongSelf.delegate,
+                          let delegate = strongSelf._delegate,
                           let host = sock.connectedHost else { return }
                     delegate.server(strongSelf,
                                     didReceivePacket: packet,
@@ -335,10 +364,10 @@ extension OSCTcpServer: GCDAsyncSocketDelegate {
                 })
             case .PLH:
                 try OSCTcp.decodePLH(data,
-                                     with: &sockets[sock]!.state.data,
+                                     with: &_sockets[sock]!.state.data,
                                      dispatchHandler: { [weak self] packet in
                     guard let strongSelf = self,
-                          let delegate = strongSelf.delegate,
+                          let delegate = strongSelf._delegate,
                           let host = sock.connectedHost else { return }
                     delegate.server(strongSelf,
                                     didReceivePacket: packet,
@@ -346,10 +375,10 @@ extension OSCTcpServer: GCDAsyncSocketDelegate {
                                     port: sock.connectedPort)
                 })
             }
-            sock.readData(withTimeout: timeout,
+            sock.readData(withTimeout: _timeout,
                           tag: 0)
         } catch {
-            delegate?.server(self,
+            _delegate?.server(self,
                              didReadData: data,
                              with: error)
         }
@@ -357,12 +386,12 @@ extension OSCTcpServer: GCDAsyncSocketDelegate {
 
     public func socket(_ sock: GCDAsyncSocket,
                        didWriteDataWithTag tag: Int) {
-        if !isListening {
-            isListening = true
+        if !_isListening {
+            _isListening = true
         }
-        guard let sentMessage = sendingMessages[tag] else { return }
-        sendingMessages[tag] = nil
-        delegate?.server(self,
+        guard let sentMessage = _sendingMessages[tag] else { return }
+        _sendingMessages[tag] = nil
+        _delegate?.server(self,
                          didSendPacket: sentMessage.packet,
                          toClientWithHost: sentMessage.host,
                          port: sentMessage.port)
@@ -372,22 +401,22 @@ extension OSCTcpServer: GCDAsyncSocketDelegate {
     public func socketDidDisconnect(_ sock: GCDAsyncSocket,
                                     withError error: Error?) {
         if sock != socket {
-            if !isListening {
-                isListening = true
+            if !_isListening {
+                _isListening = true
             }
-            guard let host = sockets[sock]?.host,
-                  let port = sockets[sock]?.port else { return }
-            sockets[sock] = nil
-            delegate?.server(self,
+            guard let host = _sockets[sock]?.host,
+                  let port = _sockets[sock]?.port else { return }
+            _sockets[sock] = nil
+            _delegate?.server(self,
                              didDisconnectFromClientWithHost: host,
                              port: port)
         } else {
-            delegate?.server(self,
+            _delegate?.server(self,
                              socketDidCloseWithError: error)
-            sockets.removeAll()
-            sendingMessages.removeAll()
-            tag = 0
-            isListening = false
+            _sockets.removeAll()
+            _sendingMessages.removeAll()
+            _tag = 0
+            _isListening = false
         }
     }
 

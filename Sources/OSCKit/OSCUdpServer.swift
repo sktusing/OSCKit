@@ -69,10 +69,22 @@ public class OSCUdpServer: NSObject {
     public var multicastGroups: Set<String>
 
     /// A `Set` of multicast groups that have been joined by the server.
-    public private(set) var joinedMulticastGroups: Set<String> = []
+    public private(set) var joinedMulticastGroups: Set<String> {
+        get { queue.sync { _joinedMulticastGroups } }
+        set { queue.sync { _joinedMulticastGroups = newValue } }
+    }
+    
+    /// Private: A `Set` of multicast groups that have been joined by the server.
+    private var _joinedMulticastGroups: Set<String> = []
 
     /// A boolean value that indicates whether the server is listening for OSC packets.
-    public private(set) var isListening: Bool = false
+    public var isListening: Bool {
+        get { queue.sync { _isListening } }
+        set { queue.sync { _isListening = newValue } }
+    }
+    
+    /// Private: A boolean value that indicates whether the server is listening for OSC packets.
+    private var _isListening: Bool = false
 
     /// The interface may be a name (e.g. "en1" or "lo0") or the corresponding IP address (e.g. "192.168.1.15").
     /// If the value of this is nil the server will listen on all interfaces.
@@ -106,7 +118,13 @@ public class OSCUdpServer: NSObject {
     /// The servers delegate.
     ///
     /// The delegate must conform to the `OSCUdpServerDelegate` protocol.
-    public weak var delegate: OSCUdpServerDelegate?
+    public var delegate: OSCUdpServerDelegate? {
+        get { queue.sync { _delegate } }
+        set { queue.sync { _delegate = newValue } }
+    }
+    
+    /// Private: The servers delegate.
+    private weak var _delegate: OSCUdpServerDelegate?
 
     /// An OSC UDP Server.
     /// - Parameters:
@@ -125,7 +143,7 @@ public class OSCUdpServer: NSObject {
         }
         port = configuration.port
         multicastGroups = configuration.multicastGroups
-        self.delegate = delegate
+        self._delegate = queue.sync { delegate }
         self.queue = queue
         super.init()
         socket.setDelegate(self, delegateQueue: queue)
@@ -267,27 +285,27 @@ extension OSCUdpServer: GCDAsyncUdpSocketDelegate {
         guard let host = GCDAsyncUdpSocket.host(fromAddress: address) else { return }
         do {
             let packet = try OSCParser.packet(from: data)
-            delegate?.server(self,
+            _delegate?.server(self,
                              didReceivePacket: packet,
                              fromHost: host,
                              port: GCDAsyncUdpSocket.port(fromAddress: address))
         } catch {
-            delegate?.server(self,
+            _delegate?.server(self,
                              didReadData: data,
                              with: error)
         }
-        if !isListening {
-            isListening = true
+        if !_isListening {
+            _isListening = true
         }
     }
 
     public func udpSocketDidClose(_ sock: GCDAsyncUdpSocket,
                                   withError error: Error?) {
-        isListening = false
-        if joinedMulticastGroups.isEmpty == false {
-            joinedMulticastGroups.removeAll()
+        _isListening = false
+        if _joinedMulticastGroups.isEmpty == false {
+            _joinedMulticastGroups.removeAll()
         }
-        delegate?.server(self, socketDidCloseWithError: error)
+        _delegate?.server(self, socketDidCloseWithError: error)
     }
 
 }

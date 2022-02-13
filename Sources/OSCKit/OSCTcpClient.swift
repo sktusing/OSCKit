@@ -62,10 +62,17 @@ public class OSCTcpClient: NSObject {
     /// The timeout for the connect opeartion.
     /// If the timeout value is negative, the connect operation will not use a timeout.
     public var connectingTimeout: TimeInterval = 1
-
-    /// The timeout for the send opeartion.
+    
+    /// The timeout for the send operation.
     /// If the timeout value is negative, the send operation will not use a timeout.
-    public var timeout: TimeInterval = -1
+    public var timeout: TimeInterval {
+        get { queue.sync { _timeout } }
+        set { queue.sync { _timeout = newValue } }
+    }
+
+    /// Private: The timeout for the send operation.
+    /// If the timeout value is negative, the send operation will not use a timeout.
+    private var _timeout: TimeInterval = -1
 
     /// The interface may be a name (e.g. "en1" or "lo0") or the corresponding IP address (e.g. "192.168.1.15").
     /// If the value of this is nil the client will uses the default interface.
@@ -102,9 +109,19 @@ public class OSCTcpClient: NSObject {
     /// There are two versions of OSC:
     /// - OSC 1.0 uses packet length headers.
     /// - OSC 1.1 uses the [SLIP protocol](http://www.rfc-editor.org/rfc/rfc1055.txt).
-    public var streamFraming: OSCTcpStreamFraming = .SLIP {
+    public var streamFraming: OSCTcpStreamFraming {
+        get { queue.sync { _streamFraming } }
+        set { queue.sync { _streamFraming = newValue } }
+    }
+    
+    /// Private: The stream framing all OSCPackets will be encoded and decoded with.
+    ///
+    /// There are two versions of OSC:
+    /// - OSC 1.0 uses packet length headers.
+    /// - OSC 1.1 uses the [SLIP protocol](http://www.rfc-editor.org/rfc/rfc1055.txt).
+    private var _streamFraming: OSCTcpStreamFraming = .SLIP {
         didSet {
-            state = OSCTcp.SocketState()
+            _state = OSCTcp.SocketState()
         }
     }
 
@@ -114,26 +131,34 @@ public class OSCTcpClient: NSObject {
     /// The clients delegate.
     ///
     /// The delegate must conform to the `OSCTcpClientDelegate` protocol.
-    public weak var delegate: OSCTcpClientDelegate?
+    public var delegate: OSCTcpClientDelegate? {
+        get { queue.sync { _delegate } }
+        set { queue.sync { _delegate = newValue } }
+    }
+
+    /// The clients delegate.
+    ///
+    /// Private: The clients delegate.
+    private weak var _delegate: OSCTcpClientDelegate?
 
     /// A dictionary of `OSCPackets` keyed by the sequenced `tag` number.
     ///
     /// This allows for a reference to a sent packet when the
     /// GCDAsyncSocketDelegate method socket(_:didWriteDataWithTag:) is called.
-    private var sendingMessages: [Int: OSCPacket] = [:]
+    private var _sendingMessages: [Int: OSCPacket] = [:]
 
     /// A sequential tag that is increased and associated with each message sent.
     ///
     /// The tag will wrap around to 0 if the maximum amount has been reached.
     /// This allows for a reference to a sent packet when the
     /// GCDAsyncSocketDelegate method socket(_:didWriteDataWithTag:) is called.
-    private var tag: Int = 0
+    private var _tag: Int = 0
 
     /// A boolean value that indicates whether the client is connected to a server.
     public var isConnected: Bool { socket.isConnected }
 
     /// An object that contains the current state of the received data from the clients socket.
-    private var state = OSCTcp.SocketState()
+    private var _state = OSCTcp.SocketState()
 
     /// An OSC TCP Client.
     /// - Parameters:
@@ -146,8 +171,8 @@ public class OSCTcpClient: NSObject {
         interface = configuration.interface
         host = configuration.host
         port = configuration.port
-        streamFraming = configuration.streamFraming
-        self.delegate = delegate
+        _streamFraming = queue.sync { configuration.streamFraming }
+        self._delegate = queue.sync { delegate }
         self.queue = queue
         super.init()
         socket.setDelegate(self, delegateQueue: queue)
@@ -212,14 +237,14 @@ public class OSCTcpClient: NSObject {
         guard isConnected else { return }
         queue.async { [weak self] in
             guard let strongSelf = self else { return }
-            strongSelf.socket.readData(withTimeout: strongSelf.timeout, tag: 0)
-            strongSelf.sendingMessages[strongSelf.tag] = packet
+            strongSelf.socket.readData(withTimeout: strongSelf._timeout, tag: 0)
+            strongSelf._sendingMessages[strongSelf._tag] = packet
             OSCTcp.send(packet: packet,
-                        streamFraming: strongSelf.streamFraming,
+                        streamFraming: strongSelf._streamFraming,
                         with: strongSelf.socket,
-                        timeout: strongSelf.timeout,
-                        tag: strongSelf.tag)
-            strongSelf.tag = strongSelf.tag == Int.max ? 0 : strongSelf.tag + 1
+                        timeout: strongSelf._timeout,
+                        tag: strongSelf._tag)
+            strongSelf._tag = strongSelf._tag == Int.max ? 0 : strongSelf._tag + 1
         }
     }
 
@@ -235,14 +260,14 @@ public class OSCTcpClient: NSObject {
         guard isConnected else { return }
         queue.async { [weak self] in
             guard let strongSelf = self else { return }
-            strongSelf.socket.readData(withTimeout: strongSelf.timeout, tag: 0)
-            strongSelf.sendingMessages[strongSelf.tag] = packet
+            strongSelf.socket.readData(withTimeout: strongSelf._timeout, tag: 0)
+            strongSelf._sendingMessages[strongSelf._tag] = packet
             OSCTcp.send(data: data,
-                        streamFraming: strongSelf.streamFraming,
+                        streamFraming: strongSelf._streamFraming,
                         with: strongSelf.socket,
-                        timeout: strongSelf.timeout,
-                        tag: strongSelf.tag)
-            strongSelf.tag = strongSelf.tag == Int.max ? 0 : strongSelf.tag + 1
+                        timeout: strongSelf._timeout,
+                        tag: strongSelf._tag)
+            strongSelf._tag = strongSelf._tag == Int.max ? 0 : strongSelf._tag + 1
         }
     }
 
@@ -254,50 +279,50 @@ extension OSCTcpClient: GCDAsyncSocketDelegate {
     public func socket(_ sock: GCDAsyncSocket,
                        didConnectToHost host: String,
                        port: UInt16) {
-        delegate?.client(self, didConnectTo: host, port: port)
+        _delegate?.client(self, didConnectTo: host, port: port)
     }
 
     public func socket(_ sock: GCDAsyncSocket,
                        didRead data: Data,
                        withTag tag: Int) {
         do {
-            switch streamFraming {
+            switch _streamFraming {
             case .SLIP:
                 try OSCTcp.decodeSLIP(data,
-                                      with: &state,
+                                      with: &_state,
                                       dispatchHandler: { [weak self] packet in
                     guard let strongSelf = self,
-                          let delegate = strongSelf.delegate else { return }
+                          let delegate = strongSelf._delegate else { return }
                     delegate.client(strongSelf, didReceivePacket: packet)
                 })
             case .PLH:
                 try OSCTcp.decodePLH(data,
-                                     with: &state.data,
+                                     with: &_state.data,
                                      dispatchHandler: { [weak self] packet in
                     guard let strongSelf = self,
-                          let delegate = strongSelf.delegate else { return }
+                          let delegate = strongSelf._delegate else { return }
                     delegate.client(strongSelf, didReceivePacket: packet)
                 })
             }
-            sock.readData(withTimeout: timeout, tag: 0)
+            sock.readData(withTimeout: _timeout, tag: 0)
         } catch {
-            delegate?.client(self, didReadData: data, with: error)
+            _delegate?.client(self, didReadData: data, with: error)
         }
     }
 
     public func socket(_ sock: GCDAsyncSocket,
                        didWriteDataWithTag tag: Int) {
-        guard let packet = sendingMessages[tag] else { return }
-        sendingMessages[tag] = nil
-        delegate?.client(self, didSendPacket: packet)
+        guard let packet = _sendingMessages[tag] else { return }
+        _sendingMessages[tag] = nil
+        _delegate?.client(self, didSendPacket: packet)
     }
 
     public func socketDidDisconnect(_ sock: GCDAsyncSocket,
                                     withError error: Error?) {
-        delegate?.client(self, didDisconnectWith: error)
-        state = OSCTcp.SocketState()
-        sendingMessages.removeAll()
-        tag = 0
+        _delegate?.client(self, didDisconnectWith: error)
+        _state = OSCTcp.SocketState()
+        _sendingMessages.removeAll()
+        _tag = 0
     }
 
 }

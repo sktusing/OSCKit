@@ -74,19 +74,25 @@ public class OSCUdpClient: NSObject {
     /// The clients delegate.
     ///
     /// The delegate must conform to the `OSCUdpClientDelegate` protocol.
-    public weak var delegate: OSCUdpClientDelegate?
+    public var delegate: OSCUdpClientDelegate? {
+        get { queue.sync { _delegate } }
+        set { queue.sync { _delegate = newValue } }
+    }
+    
+    /// Private: The servers delegate.
+    private weak var _delegate: OSCUdpClientDelegate?
 
     /// A dictionary of `OSCPackets` keyed by the sequenced `tag` number.
     ///
     /// This allows for a reference to a sent packet when the
-    /// GCDAsynUDPSocketDelegate method udpSocket(_:didSendDataWithTag:) is called.
-    private var sendingPackets: [Int: OSCSentPacket] = [:]
+    /// GCDAsyncUDPSocketDelegate method udpSocket(_:didSendDataWithTag:) is called.
+    private var _sendingPackets: [Int: OSCSentPacket] = [:]
 
     /// A sequential tag that is increased and associated with each packet sent.
     ///
     /// The tag will wrap around to 0 if the maximum amount has been reached.
     /// This allows for a reference to a sent packet when the
-    /// GCDAsynUDPSocketDelegate method udpSocket(_:didSendDataWithTag:) is called.
+    /// GCDAsyncUDPSocketDelegate method udpSocket(_:didSendDataWithTag:) is called.
     private var tag: Int = 0
 
     /// An OSC UDP Client.
@@ -105,7 +111,7 @@ public class OSCUdpClient: NSObject {
         }
         host = configuration.host
         port = configuration.port
-        self.delegate = delegate
+        self._delegate = queue.sync { delegate }
         self.queue = queue
         super.init()
         socket.setDelegate(self, delegateQueue: queue)
@@ -181,9 +187,11 @@ public class OSCUdpClient: NSObject {
             // Port 0 means that the OS should choose a random ephemeral port for this socket.
             try socket.bind(toPort: 0, interface: interface)
         }
-        sendingPackets[tag] = OSCSentPacket(host: socket.localHost(),
-                                            port: socket.localPort(),
-                                            packet: packet)
+        _sendingPackets[tag] = queue.sync {
+            OSCSentPacket(host: socket.localHost(),
+                          port: socket.localPort(),
+                          packet: packet)
+        }
         socket.send(data,
                     toHost: host,
                     port: port,
@@ -200,9 +208,9 @@ extension OSCUdpClient: GCDAsyncUdpSocketDelegate {
 
     public func udpSocket(_ sock: GCDAsyncUdpSocket,
                           didSendDataWithTag tag: Int) {
-        guard let sentPacket = sendingPackets[tag] else { return }
-        sendingPackets[tag] = nil
-        delegate?.client(self,
+        guard let sentPacket = _sendingPackets[tag] else { return }
+        _sendingPackets[tag] = nil
+        _delegate?.client(self,
                          didSendPacket: sentPacket.packet,
                          fromHost: sentPacket.host,
                          port: sentPacket.port)
@@ -211,9 +219,9 @@ extension OSCUdpClient: GCDAsyncUdpSocketDelegate {
     public func udpSocket(_ sock: GCDAsyncUdpSocket,
                           didNotSendDataWithTag tag: Int,
                           dueToError error: Error?) {
-        guard let sentPacket = sendingPackets[tag] else { return }
-        sendingPackets[tag] = nil
-        delegate?.client(self,
+        guard let sentPacket = _sendingPackets[tag] else { return }
+        _sendingPackets[tag] = nil
+        _delegate?.client(self,
                          didNotSendPacket: sentPacket.packet,
                          fromHost: sentPacket.host,
                          port: sentPacket.port,
@@ -223,8 +231,8 @@ extension OSCUdpClient: GCDAsyncUdpSocketDelegate {
     public func udpSocketDidClose(_ sock: GCDAsyncUdpSocket,
                                   withError error: Error?) {
         guard let error = error else { return }
-        sendingPackets.removeAll()
-        delegate?.client(self, socketDidCloseWithError: error)
+        _sendingPackets.removeAll()
+        _delegate?.client(self, socketDidCloseWithError: error)
     }
 
 }
