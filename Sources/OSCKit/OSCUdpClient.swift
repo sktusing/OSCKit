@@ -111,7 +111,7 @@ public class OSCUdpClient: NSObject {
         }
         host = configuration.host
         port = configuration.port
-        self._delegate = queue.sync { delegate }
+        self._delegate = delegate
         self.queue = queue
         super.init()
         socket.setDelegate(self, delegateQueue: queue)

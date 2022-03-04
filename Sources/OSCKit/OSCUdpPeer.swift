@@ -151,7 +151,7 @@ public class OSCUdpPeer: NSObject {
         host = configuration.host
         port = configuration.port
         hostPort = configuration.hostPort
-        self._delegate = queue.sync { delegate }
+        self._delegate = delegate
         self.queue = queue
         super.init()
         socket.setDelegate(self, delegateQueue: queue)

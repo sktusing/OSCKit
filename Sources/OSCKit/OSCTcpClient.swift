@@ -171,8 +171,8 @@ public class OSCTcpClient: NSObject {
         interface = configuration.interface
         host = configuration.host
         port = configuration.port
-        _streamFraming = queue.sync { configuration.streamFraming }
-        self._delegate = queue.sync { delegate }
+        _streamFraming = configuration.streamFraming
+        self._delegate = delegate
         self.queue = queue
         super.init()
         socket.setDelegate(self, delegateQueue: queue)

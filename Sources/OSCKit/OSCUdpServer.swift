@@ -143,7 +143,7 @@ public class OSCUdpServer: NSObject {
         }
         port = configuration.port
         multicastGroups = configuration.multicastGroups
-        self._delegate = queue.sync { delegate }
+        self._delegate = delegate
         self.queue = queue
         super.init()
         socket.setDelegate(self, delegateQueue: queue)
