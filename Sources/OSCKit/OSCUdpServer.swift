@@ -5,6 +5,9 @@
 //  Created by Sam Smallman on 07/07/2021.
 //  Copyright © 2020 Sam Smallman. https://github.com/SammySmallman
 //
+//  Thread Safety by Daniel Murfin on 2022-03-05.
+//  Copyright (c) 2022 Daniel Murfin. https://github.com/dsmurfin
+//
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to deal
 //  in the Software without restriction, including without limitation the rights
@@ -70,8 +73,8 @@ public class OSCUdpServer: NSObject {
 
     /// A `Set` of multicast groups that have been joined by the server.
     public private(set) var joinedMulticastGroups: Set<String> {
-        get { queue.sync { _joinedMulticastGroups } }
-        set { queue.sync { _joinedMulticastGroups = newValue } }
+        get { Self.internalQueue.sync { _joinedMulticastGroups } }
+        set { Self.internalQueue.sync { _joinedMulticastGroups = newValue } }
     }
     
     /// Private: A `Set` of multicast groups that have been joined by the server.
@@ -79,8 +82,8 @@ public class OSCUdpServer: NSObject {
 
     /// A boolean value that indicates whether the server is listening for OSC packets.
     public var isListening: Bool {
-        get { queue.sync { _isListening } }
-        set { queue.sync { _isListening = newValue } }
+        get { Self.internalQueue.sync { _isListening } }
+        set { Self.internalQueue.sync { _isListening = newValue } }
     }
     
     /// Private: A boolean value that indicates whether the server is listening for OSC packets.
@@ -111,6 +114,9 @@ public class OSCUdpServer: NSObject {
     /// A boolean value that indicates whether the servers socket has been enabled
     /// to allow for multiple processes to simultaneously bind to the same port.
     public private(set) var reusePort: Bool = false
+    
+    /// The dispatch queue that the server uses to ensure thread-safe read/write for variables.
+    private static let internalQueue: DispatchQueue = DispatchQueue(label: "com.danielmurfin.OSCKit.OSCUdpServer.internal")
 
     /// The dispatch queue that the server executes all delegate callbacks on.
     private let queue: DispatchQueue
@@ -119,8 +125,8 @@ public class OSCUdpServer: NSObject {
     ///
     /// The delegate must conform to the `OSCUdpServerDelegate` protocol.
     public var delegate: OSCUdpServerDelegate? {
-        get { queue.sync { _delegate } }
-        set { queue.sync { _delegate = newValue } }
+        get { Self.internalQueue.sync { _delegate } }
+        set { Self.internalQueue.sync { _delegate = newValue } }
     }
     
     /// Private: The servers delegate.
@@ -285,27 +291,27 @@ extension OSCUdpServer: GCDAsyncUdpSocketDelegate {
         guard let host = GCDAsyncUdpSocket.host(fromAddress: address) else { return }
         do {
             let packet = try OSCParser.packet(from: data)
-            _delegate?.server(self,
+            delegate?.server(self,
                              didReceivePacket: packet,
                              fromHost: host,
                              port: GCDAsyncUdpSocket.port(fromAddress: address))
         } catch {
-            _delegate?.server(self,
+            delegate?.server(self,
                              didReadData: data,
                              with: error)
         }
-        if !_isListening {
-            _isListening = true
+        if !isListening {
+            isListening = true
         }
     }
 
     public func udpSocketDidClose(_ sock: GCDAsyncUdpSocket,
                                   withError error: Error?) {
-        _isListening = false
-        if _joinedMulticastGroups.isEmpty == false {
-            _joinedMulticastGroups.removeAll()
+        isListening = false
+        if joinedMulticastGroups.isEmpty == false {
+            joinedMulticastGroups.removeAll()
         }
-        _delegate?.server(self, socketDidCloseWithError: error)
+        delegate?.server(self, socketDidCloseWithError: error)
     }
 
 }

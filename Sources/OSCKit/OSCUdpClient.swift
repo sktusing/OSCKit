@@ -5,6 +5,9 @@
 //  Created by Sam Smallman on 07/07/2021.
 //  Copyright © 2020 Sam Smallman. https://github.com/SammySmallman
 //
+//  Thread Safety by Daniel Murfin on 2022-03-05.
+//  Copyright (c) 2022 Daniel Murfin. https://github.com/dsmurfin
+//
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to deal
 //  in the Software without restriction, including without limitation the rights
@@ -67,6 +70,9 @@ public class OSCUdpClient: NSObject {
 
     /// The port of the host the client should send packets to.
     public var port: UInt16
+    
+    /// The dispatch queue that the server uses to ensure thread-safe read/write for variables.
+    private static let internalQueue: DispatchQueue = DispatchQueue(label: "com.danielmurfin.OSCKit.OSCUdpClient.internal")
 
     /// The dispatch queue that the client executes all delegate callbacks on.
     private let queue: DispatchQueue
@@ -75,8 +81,8 @@ public class OSCUdpClient: NSObject {
     ///
     /// The delegate must conform to the `OSCUdpClientDelegate` protocol.
     public var delegate: OSCUdpClientDelegate? {
-        get { queue.sync { _delegate } }
-        set { queue.sync { _delegate = newValue } }
+        get { Self.internalQueue.sync { _delegate } }
+        set { Self.internalQueue.sync { _delegate = newValue } }
     }
     
     /// Private: The servers delegate.
@@ -86,6 +92,12 @@ public class OSCUdpClient: NSObject {
     ///
     /// This allows for a reference to a sent packet when the
     /// GCDAsyncUDPSocketDelegate method udpSocket(_:didSendDataWithTag:) is called.
+    private var sendingPackets: [Int: OSCSentPacket] {
+        get { Self.internalQueue.sync { _sendingPackets } }
+        set { Self.internalQueue.sync { _sendingPackets = newValue } }
+    }
+    
+    /// Private: A dictionary of `OSCPackets` keyed by the sequenced `tag` number.
     private var _sendingPackets: [Int: OSCSentPacket] = [:]
 
     /// A sequential tag that is increased and associated with each packet sent.
@@ -187,11 +199,9 @@ public class OSCUdpClient: NSObject {
             // Port 0 means that the OS should choose a random ephemeral port for this socket.
             try socket.bind(toPort: 0, interface: interface)
         }
-        _sendingPackets[tag] = queue.sync {
-            OSCSentPacket(host: socket.localHost(),
+        sendingPackets[tag] = OSCSentPacket(host: socket.localHost(),
                           port: socket.localPort(),
                           packet: packet)
-        }
         socket.send(data,
                     toHost: host,
                     port: port,
@@ -208,9 +218,9 @@ extension OSCUdpClient: GCDAsyncUdpSocketDelegate {
 
     public func udpSocket(_ sock: GCDAsyncUdpSocket,
                           didSendDataWithTag tag: Int) {
-        guard let sentPacket = _sendingPackets[tag] else { return }
-        _sendingPackets[tag] = nil
-        _delegate?.client(self,
+        guard let sentPacket = sendingPackets[tag] else { return }
+        sendingPackets[tag] = nil
+        delegate?.client(self,
                          didSendPacket: sentPacket.packet,
                          fromHost: sentPacket.host,
                          port: sentPacket.port)
@@ -219,9 +229,9 @@ extension OSCUdpClient: GCDAsyncUdpSocketDelegate {
     public func udpSocket(_ sock: GCDAsyncUdpSocket,
                           didNotSendDataWithTag tag: Int,
                           dueToError error: Error?) {
-        guard let sentPacket = _sendingPackets[tag] else { return }
-        _sendingPackets[tag] = nil
-        _delegate?.client(self,
+        guard let sentPacket = sendingPackets[tag] else { return }
+        sendingPackets[tag] = nil
+        delegate?.client(self,
                          didNotSendPacket: sentPacket.packet,
                          fromHost: sentPacket.host,
                          port: sentPacket.port,
@@ -231,8 +241,8 @@ extension OSCUdpClient: GCDAsyncUdpSocketDelegate {
     public func udpSocketDidClose(_ sock: GCDAsyncUdpSocket,
                                   withError error: Error?) {
         guard let error = error else { return }
-        _sendingPackets.removeAll()
-        _delegate?.client(self, socketDidCloseWithError: error)
+        sendingPackets.removeAll()
+        delegate?.client(self, socketDidCloseWithError: error)
     }
 
 }
