@@ -239,7 +239,7 @@ public class OSCUdpServer: NSObject {
     /// This includes other applications attempting to use the same port...
     public func enableReusePort(_ flag: Bool) throws {
         stopListening()
-        try socket.enableBroadcast(flag)
+        try socket.enableReusePort(flag)
         reusePort = flag
     }
 
