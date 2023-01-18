@@ -234,7 +234,7 @@ public class OSCUdpPeer: NSObject {
     /// This includes other applications attempting to use the same port...
     public func enableReusePort(_ flag: Bool) throws {
         stopRunning()
-        try socket.enableBroadcast(flag)
+        try socket.enableReusePort(flag)
         reusePort = flag
     }
     
